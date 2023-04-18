@@ -4,6 +4,7 @@ documentation = "https://docs.rs/librpc-json"
 edition.workspace = true
 license = "MIT"
 name = "librpc-json"
+repository.workspace = true
 version.workspace = true
 
 [dependencies]
