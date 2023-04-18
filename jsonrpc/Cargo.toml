@@ -1,0 +1,20 @@
+[package]
+description = "JSON rpc v2.0 implementation"
+documentation = "https://docs.rs/librpc-json"
+edition.workspace = true
+license = "MIT"
+name = "librpc-json"
+version.workspace = true
+
+[dependencies]
+async-timer-rs = {workspace = true}
+librpc = {workspace = true}
+log = {workspace = true}
+serde = {workspace = true}
+serde_json = {workspace = true}
+thiserror = {workspace = true}
+
+[dev-dependencies]
+criterion = {workspace = true}
+futures-test = {workspace = true}
+pretty_env_logger = {workspace = true}

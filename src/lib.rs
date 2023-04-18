@@ -11,7 +11,7 @@ mod tests {
 
     #[futures_test::test]
     async fn test_timeout() {
-        let (dispatcher, _receiver) = Dispatcher::<String, String>::new(100);
+        let (mut dispatcher, _receiver) = Dispatcher::<String, String>::new(100);
 
         let result = dispatcher
             .call(
@@ -19,6 +19,8 @@ mod tests {
                 "hello".to_owned(),
                 Some(Timeout::new(Duration::from_secs(2))),
             )
+            .await
+            .unwrap()
             .await;
 
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);

@@ -1,30 +1,27 @@
-use std::{sync::mpsc::Receiver, thread::spawn};
+use std::thread::spawn;
 
 use async_timer_rs::hashed::Timeout;
 use criterion::{async_executor::FuturesExecutor, *};
+use futures::{channel::mpsc::Receiver, executor::block_on, StreamExt};
 use librpc::{dispatcher::Dispatcher, responder::Responder};
 
-fn echo(receiver: Receiver<(u64, String)>, responder: Responder<String>) {
+async fn echo(mut receiver: Receiver<(u64, String)>, responder: Responder<String>) {
     let mut i = 0;
 
-    loop {
+    while let Some((id, msg)) = receiver.next().await {
         i += 1;
 
-        match receiver.recv() {
-            Err(err) => {
-                log::debug!("received: {}, {}", i, err);
-                break;
-            }
-            Ok((id, msg)) => {
-                responder.complete(id, Ok(msg));
-            }
-        }
+        responder.complete(id, Ok(msg));
     }
+
+    log::debug!("echo server exit with counter: {}", i)
 }
 
-async fn client(dispatcher: Dispatcher<String, String>) {
+async fn client(mut dispatcher: Dispatcher<String, String>) {
     let echo = dispatcher
         .call::<Timeout>(0, "hello".to_owned(), None)
+        .await
+        .unwrap()
         .await
         .unwrap();
 
@@ -38,7 +35,7 @@ fn bench_rpc(c: &mut Criterion) {
 
     let responder = dispatcher.responder.clone();
 
-    spawn(move || echo(receiver, responder));
+    spawn(move || block_on(echo(receiver, responder)));
 
     c.bench_function("echo rpc", |b| {
         b.to_async(FuturesExecutor)
