@@ -8,6 +8,7 @@ version.workspace = true
 
 [dependencies]
 async-timer-rs = {workspace = true}
+futures = {workspace = true}
 librpc = {workspace = true}
 log = {workspace = true}
 serde = {workspace = true}
@@ -18,3 +19,7 @@ thiserror = {workspace = true}
 criterion = {workspace = true}
 futures-test = {workspace = true}
 pretty_env_logger = {workspace = true}
+
+[[bench]]
+harness = false
+name = "echo"

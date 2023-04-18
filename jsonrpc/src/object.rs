@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 
+use futures::channel::mpsc::SendError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A rpc call is represented by sending a Request object to a Server.  
@@ -14,7 +15,7 @@ where
     /// or NULL value if included. If it is not included it is assumed to be a notification.
     /// The value SHOULD normally not be Null and Numbers SHOULD NOT contain fractional parts
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<usize>,
+    pub id: Option<u64>,
     /// A String specifying the version of the JSON-RPC protocol. MUST be exactly "2.0".
     pub jsonrpc: Version,
     /// A String containing the name of the method to be invoked. Method names
@@ -60,7 +61,7 @@ where
 {
     /// This member is REQUIRED on error.
     /// This member MUST NOT exist if there was no error triggered during invocation.
-    pub id: usize,
+    pub id: u64,
     /// A String specifying the version of the JSON-RPC protocol. MUST be exactly "2.0".
     pub jsonrpc: Version,
     /// This member is REQUIRED on success.
@@ -132,6 +133,26 @@ impl From<serde_json::Error> for Error<String, serde_json::Value> {
         Self {
             code: ErrorCode::ParseError,
             message: format!("Serialize/Deserialize json data error: {}", err),
+            data: None,
+        }
+    }
+}
+
+impl From<std::io::Error> for Error<String, serde_json::Value> {
+    fn from(err: std::io::Error) -> Self {
+        Self {
+            code: ErrorCode::InternalError,
+            message: format!("Underly io error: {}", err),
+            data: None,
+        }
+    }
+}
+
+impl From<SendError> for Error<String, serde_json::Value> {
+    fn from(err: SendError) -> Self {
+        Self {
+            code: ErrorCode::InternalError,
+            message: format!("Underly io error: {}", err),
             data: None,
         }
     }

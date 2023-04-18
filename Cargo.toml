@@ -17,13 +17,13 @@ log = {workspace = true}
 criterion = {workspace = true}
 futures-test = {workspace = true}
 pretty_env_logger = {workspace = true}
-
+thiserror = {workspace = true}
 [[bench]]
 harness = false
 name = "echo"
 
 [workspace]
-members = ["./"]
+members = ["./", "jsonrpc"]
 
 [workspace.package]
 edition = "2021"

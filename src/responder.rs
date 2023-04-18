@@ -3,7 +3,6 @@
 use std::{
     collections::HashMap,
     future::Future,
-    io::Result,
     sync::{Arc, Mutex},
     task::{Poll, Waker},
 };
@@ -12,12 +11,12 @@ use async_timer_rs::Timer;
 use futures::FutureExt;
 
 #[derive(Debug)]
-struct DispatcherImpl<Output> {
+struct DispatcherImpl<Output, Error> {
     wakers: HashMap<u64, Waker>,
-    completed: HashMap<u64, Result<Output>>,
+    completed: HashMap<u64, Result<Output, Error>>,
 }
 
-impl<Output> Default for DispatcherImpl<Output> {
+impl<Output, Error> Default for DispatcherImpl<Output, Error> {
     fn default() -> Self {
         Self {
             wakers: HashMap::new(),
@@ -28,11 +27,11 @@ impl<Output> Default for DispatcherImpl<Output> {
 
 /// Rpc message dispatcher.
 #[derive(Debug)]
-pub struct Responder<Output> {
-    inner: Arc<Mutex<DispatcherImpl<Output>>>,
+pub struct Responder<Output, Error> {
+    inner: Arc<Mutex<DispatcherImpl<Output, Error>>>,
 }
 
-impl<Output> Clone for Responder<Output> {
+impl<Output, Error> Clone for Responder<Output, Error> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -40,14 +39,14 @@ impl<Output> Clone for Responder<Output> {
     }
 }
 
-impl<Output> Responder<Output> {
+impl<Output, Error> Responder<Output, Error> {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(DispatcherImpl::default())),
         }
     }
     /// Emit complete event with [`output`](Result<Output>)
-    pub fn complete(&self, id: u64, output: Result<Output>) {
+    pub fn complete(&self, id: u64, output: Result<Output, Error>) {
         let waker = {
             let mut inner = self.inner.lock().unwrap();
 
@@ -66,7 +65,7 @@ impl<Output> Responder<Output> {
     /// # Parameters
     /// - `id` RPC id for [`responder`](Responder<Output>)
     /// - `waker` [`Waker`] of [`responder`](Responder<Output>) [`future`](Future)
-    fn poll_once(&self, id: u64, waker: Waker) -> Poll<Result<Output>> {
+    fn poll_once(&self, id: u64, waker: Waker) -> Poll<Result<Output, Error>> {
         let mut inner = self.inner.lock().unwrap();
 
         if let Some(r) = inner.completed.remove(&id) {
@@ -84,15 +83,15 @@ impl<Output> Responder<Output> {
 }
 
 /// Response poller of one call.
-pub struct Response<T, Output> {
+pub struct Response<T, Output, Error> {
     id: u64,
-    responder: Responder<Output>,
+    responder: Responder<Output, Error>,
     timeout: Option<T>,
 }
 
-impl<T, Output> Response<T, Output> {
+impl<T, Output, Error> Response<T, Output, Error> {
     /// Create new response object
-    pub fn new(id: u64, responder: Responder<Output>, timeout: Option<T>) -> Self {
+    pub fn new(id: u64, responder: Responder<Output, Error>, timeout: Option<T>) -> Self {
         Response {
             id,
             responder,
@@ -101,11 +100,12 @@ impl<T, Output> Response<T, Output> {
     }
 }
 
-impl<T, Output> Future for Response<T, Output>
+impl<T, Output, Error> Future for Response<T, Output, Error>
 where
     T: Timer + Unpin,
+    Error: From<std::io::Error>,
 {
-    type Output = Result<Output>;
+    type Output = Result<Output, Error>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
@@ -126,7 +126,8 @@ where
                     return Poll::Ready(Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         "Response timeout",
-                    )));
+                    )
+                    .into()));
                 }
             }
         }

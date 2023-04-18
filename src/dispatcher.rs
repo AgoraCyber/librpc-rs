@@ -1,28 +1,36 @@
 //! RPC dispatcher types
 
-use std::io::Result;
-
 use async_timer_rs::Timer;
 use futures::{
-    channel::mpsc::{channel, Receiver, Sender},
+    channel::mpsc::{channel, Receiver, SendError, Sender},
     SinkExt,
 };
 
 use crate::responder::{Responder, Response};
 
 /// RPC dispatcher
-#[derive(Debug, Clone)]
-pub struct Dispatcher<Input, Output> {
-    sender: Sender<(u64, Input)>,
-    pub responder: Responder<Output>,
+#[derive(Debug)]
+pub struct Dispatcher<Input, Output, Error> {
+    sender: Sender<(Option<u64>, Input)>,
+    pub responder: Responder<Output, Error>,
 }
 
-impl<Input, Output> Dispatcher<Input, Output>
+impl<Input, Output, Error> Clone for Dispatcher<Input, Output, Error> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            responder: self.responder.clone(),
+        }
+    }
+}
+
+impl<Input, Output, Error> Dispatcher<Input, Output, Error>
 where
     Input: Send + Sync + 'static,
+    Error: From<SendError>,
 {
     /// Create new dispatcher and
-    pub fn new(cache_size: usize) -> (Self, Receiver<(u64, Input)>) {
+    pub fn new(cache_size: usize) -> (Self, Receiver<(Option<u64>, Input)>) {
         let (sender, receiver) = channel(cache_size);
 
         (
@@ -40,10 +48,18 @@ where
         id: u64,
         input: Input,
         timeout: Option<T>,
-    ) -> Result<Response<T, Output>> {
-        match self.sender.send((id, input)).await {
+    ) -> Result<Response<T, Output, Error>, Error> {
+        match self.sender.send((Some(id), input)).await {
             Ok(_) => Ok(Response::new(id, self.responder.clone(), timeout)),
-            Err(err) => Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, err)),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Start send one notification to remote.
+    pub async fn notification(&mut self, input: Input) -> Result<(), Error> {
+        match self.sender.send((None, input)).await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err.into()),
         }
     }
 }

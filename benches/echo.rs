@@ -2,22 +2,39 @@ use std::thread::spawn;
 
 use async_timer_rs::hashed::Timeout;
 use criterion::{async_executor::FuturesExecutor, *};
-use futures::{channel::mpsc::Receiver, executor::block_on, StreamExt};
+use futures::{
+    channel::mpsc::{Receiver, SendError},
+    executor::block_on,
+    StreamExt,
+};
 use librpc::{dispatcher::Dispatcher, responder::Responder};
+use thiserror::Error;
 
-async fn echo(mut receiver: Receiver<(u64, String)>, responder: Responder<String>) {
+#[derive(Debug, Error)]
+enum TestError {
+    #[error(transparent)]
+    SendError(#[from] SendError),
+
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+}
+
+async fn echo(
+    mut receiver: Receiver<(Option<u64>, String)>,
+    responder: Responder<String, TestError>,
+) {
     let mut i = 0;
 
     while let Some((id, msg)) = receiver.next().await {
         i += 1;
 
-        responder.complete(id, Ok(msg));
+        responder.complete(id.unwrap(), Ok(msg));
     }
 
     log::debug!("echo server exit with counter: {}", i)
 }
 
-async fn client(mut dispatcher: Dispatcher<String, String>) {
+async fn client(mut dispatcher: Dispatcher<String, String, TestError>) {
     let echo = dispatcher
         .call::<Timeout>(0, "hello".to_owned(), None)
         .await
