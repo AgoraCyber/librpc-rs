@@ -10,6 +10,9 @@ use std::{
     task::{Poll, Waker},
 };
 
+use async_timer_rs::Timer;
+use futures::FutureExt;
+
 #[derive(Debug)]
 struct DispatcherImpl<Output> {
     wakers: HashMap<u64, Waker>,
@@ -65,7 +68,7 @@ impl<Output> Responder<Output> {
     /// # Parameters
     /// - `id` RPC id for [`responder`](Responder<Output>)
     /// - `waker` [`Waker`] of [`responder`](Responder<Output>) [`future`](Future)
-    pub fn poll_once(&self, id: u64, waker: Waker) -> Poll<Result<Output>> {
+    fn poll_once(&self, id: u64, waker: Waker) -> Poll<Result<Output>> {
         let mut inner = self.inner.lock().unwrap();
 
         if let Some(r) = inner.completed.remove(&id) {
@@ -76,25 +79,60 @@ impl<Output> Responder<Output> {
 
         Poll::Pending
     }
-}
 
-/// Response poller of one call.
-pub struct ResponsePoller<Output> {
-    id: u64,
-    responder: Responder<Output>,
-}
-
-impl<Output> ResponsePoller<Output> {
-    /// Create new response object
-    pub fn new(id: u64, responder: Responder<Output>) -> Self {
-        ResponsePoller { id, responder }
+    fn remove_pending_poll(&self, id: u64) {
+        self.inner.lock().unwrap().wakers.remove(&id);
     }
 }
 
-impl<Output> Future for ResponsePoller<Output> {
+/// Response poller of one call.
+pub struct ResponsePoller<T, Output> {
+    id: u64,
+    responder: Responder<Output>,
+    timeout: Option<T>,
+}
+
+impl<T, Output> ResponsePoller<T, Output> {
+    /// Create new response object
+    pub fn new(id: u64, responder: Responder<Output>, timeout: Option<T>) -> Self {
+        ResponsePoller {
+            id,
+            responder,
+            timeout,
+        }
+    }
+}
+
+impl<T, Output> Future for ResponsePoller<T, Output>
+where
+    T: Timer + Unpin,
+{
     type Output = Result<Output>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        let timer = self.timeout.take();
+
+        if let Some(mut timer) = timer {
+            match timer.poll_unpin(cx) {
+                Poll::Pending => {
+                    self.timeout = Some(timer);
+                }
+                Poll::Ready(_) => {
+                    // Remove pending poll operation .
+                    self.responder.remove_pending_poll(self.id);
+
+                    // Return timeout error
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "Response timeout",
+                    )));
+                }
+            }
+        }
+
         self.responder.poll_once(self.id, cx.waker().clone())
     }
 }
@@ -130,15 +168,19 @@ where
 }
 
 /// Future for response
-pub enum Response<Output> {
-    Poller(ResponsePoller<Output>),
+pub enum Response<T, Output> {
+    Poller(ResponsePoller<T, Output>),
     Err(ResponseError<Output>),
 }
 
-impl<Output> Response<Output> {
+impl<T, Output> Response<T, Output> {
     /// Create new poller response object
-    pub fn poller(id: u64, responder: Responder<Output>) -> Self {
-        Self::Poller(ResponsePoller { id, responder })
+    pub fn poller(id: u64, responder: Responder<Output>, timeout: Option<T>) -> Self {
+        Self::Poller(ResponsePoller {
+            id,
+            responder,
+            timeout,
+        })
     }
 
     /// Create new error response object
@@ -150,9 +192,10 @@ impl<Output> Response<Output> {
     }
 }
 
-impl<Output> Future for Response<Output>
+impl<T, Output> Future for Response<T, Output>
 where
     Output: Unpin,
+    T: Timer + Unpin,
 {
     type Output = Result<Output>;
 

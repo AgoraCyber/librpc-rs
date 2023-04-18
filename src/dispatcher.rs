@@ -2,6 +2,8 @@
 
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 
+use async_timer_rs::Timer;
+
 use crate::responder::{Responder, Response};
 
 /// RPC dispatcher
@@ -29,9 +31,9 @@ where
     }
 
     /// Start a new rpc call with sequence id.
-    pub fn call(&self, id: u64, input: Input) -> Response<Output> {
+    pub fn call<T: Timer>(&self, id: u64, input: Input, timeout: Option<T>) -> Response<T, Output> {
         match self.sender.send((id, input)) {
-            Ok(_) => Response::poller(id, self.responder.clone()),
+            Ok(_) => Response::poller(id, self.responder.clone(), timeout),
             Err(err) => Response::error(std::io::Error::new(std::io::ErrorKind::BrokenPipe, err)),
         }
     }

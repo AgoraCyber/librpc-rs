@@ -1,5 +1,6 @@
 use std::{sync::mpsc::Receiver, thread::spawn};
 
+use async_timer_rs::hashed::Timeout;
 use criterion::{async_executor::FuturesExecutor, *};
 use librpc::{dispatcher::Dispatcher, responder::Responder};
 
@@ -22,7 +23,10 @@ fn echo(receiver: Receiver<(u64, String)>, responder: Responder<String>) {
 }
 
 async fn client(dispatcher: Dispatcher<String, String>) {
-    let echo = dispatcher.call(0, "hello".to_owned()).await.unwrap();
+    let echo = dispatcher
+        .call::<Timeout>(0, "hello".to_owned(), None)
+        .await
+        .unwrap();
 
     assert_eq!(echo, "hello");
 }
